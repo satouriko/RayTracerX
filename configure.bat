@@ -12,4 +12,5 @@ vcpkg.exe install ^
     tinyobjloader:x64-windows
 
 cd ..
+cmake -D VCPKG_TARGET_TRIPLET=x64-windows -D CMAKE_TOOLCHAIN_FILE=./vcpkg/scripts/buildsystems/vcpkg.cmake ..
 cd ..

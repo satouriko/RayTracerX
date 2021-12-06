@@ -3,4 +3,5 @@ cmake-build-debug
 cmake-build-release
 .idea
 .DS_Store
-
+bin_*
+downloaded_resources
