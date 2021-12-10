@@ -2,16 +2,89 @@
 #include <GL/glew.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
-#include "nvvk/context_vk.hpp"
-
+#include <nvvk/context_vk.hpp>
+#include <nvvk/structs_vk.hpp>  // For nvvk::make
+#include <nvvk/resourceallocator_vk.hpp>  // For NVVK memory allocators
+#include <nvvk/error_vk.hpp>              // For NVVK_CHECK
+#include <nvh/fileoperations.hpp>  // For nvh::loadFile
+#include <nvvk/shaders_vk.hpp>            // For nvvk::createShaderModule
+#include <nvvk/descriptorsets_vk.hpp>  // For nvvk::DescriptorSetContainer
+#include <nvvk/raytraceKHR_vk.hpp>        // For nvvk::RaytracingBuilderKHR
 #include <iostream>
+
+// settings
+
+static const uint32_t workgroup_width = 16;
+static const uint32_t workgroup_height = 8;
+
+const unsigned int SCR_WIDTH = 800;
+const unsigned int SCR_HEIGHT = 800;
+
+static const uint64_t render_width = 800;
+static const uint64_t render_height = 600;
+
+VkCommandBuffer AllocateAndBeginOneTimeCommandBuffer(VkDevice device,
+                                                     VkCommandPool cmdPool) {
+  VkCommandBufferAllocateInfo cmdAllocInfo =
+      nvvk::make<VkCommandBufferAllocateInfo>();
+  cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cmdAllocInfo.commandPool = cmdPool;
+  cmdAllocInfo.commandBufferCount = 1;
+  VkCommandBuffer cmdBuffer;
+  NVVK_CHECK(vkAllocateCommandBuffers(device, &cmdAllocInfo, &cmdBuffer));
+  VkCommandBufferBeginInfo beginInfo = nvvk::make<VkCommandBufferBeginInfo>();
+  beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  NVVK_CHECK(vkBeginCommandBuffer(cmdBuffer, &beginInfo));
+  return cmdBuffer;
+}
+
+void EndSubmitWaitAndFreeCommandBuffer(VkDevice device, VkQueue queue,
+                                       VkCommandPool cmdPool,
+                                       VkCommandBuffer &cmdBuffer) {
+  NVVK_CHECK(vkEndCommandBuffer(cmdBuffer));
+  VkSubmitInfo submitInfo = nvvk::make<VkSubmitInfo>();
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &cmdBuffer;
+  NVVK_CHECK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+  NVVK_CHECK(vkQueueWaitIdle(queue));
+  vkFreeCommandBuffers(device, cmdPool, 1, &cmdBuffer);
+}
+
+VkDeviceAddress GetBufferDeviceAddress(VkDevice device, VkBuffer buffer) {
+  VkBufferDeviceAddressInfo addressInfo =
+      nvvk::make<VkBufferDeviceAddressInfo>();
+  addressInfo.buffer = buffer;
+  return vkGetBufferDeviceAddress(device, &addressInfo);
+}
+
+void render(int& width, int& height, unsigned char*& data) {
+  // Create the Vulkan context, consisting of an instance, device, physical
+  // device, and queues.
+  nvvk::ContextCreateInfo
+      deviceInfo; // One can modify this to load different extensions or pick
+                  // the Vulkan core version
+  nvvk::Context context;    // Encapsulates device state in a single object
+  context.init(deviceInfo); // Initialize the context
+
+  // Create the image (RGB Array) to be displayed
+  width = 8, height = 8; // keep it in powers of 2!
+  unsigned char *image = (unsigned char*)malloc(width * height * 3 * sizeof(unsigned char));
+  for (int i = 0; i < height; i++) {
+    for (int j = 0; j < width; j++) {
+      int idx = (i * width + j) * 3;
+      image[idx] =
+          (unsigned char)(255 * i * j / height / width); //((i+j) % 2) * 255;
+      image[idx + 1] = 0;
+      image[idx + 2] = 0;
+    }
+  }
+  data = image;
+
+  context.deinit(); // Don't forget to clean up at the end of the program!
+}
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void processInput(GLFWwindow *window);
-
-// settings
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 800;
 
 const char *vertexShaderSource = "#version 330 core\n"
                                  "layout (location = 0) in vec3 aPos;\n"
@@ -38,17 +111,14 @@ const char *fragmentShaderSource =
     "}\n\0";
 
 int main() {
-   // Create the Vulkan context, consisting of an instance, device, physical device, and queues.
-  nvvk::ContextCreateInfo deviceInfo;  // One can modify this to load different extensions or pick the Vulkan core version
-  nvvk::Context           context;     // Encapsulates device state in a single object
-  context.init(deviceInfo);            // Initialize the context
-  context.deinit();                    // Don't forget to clean up at the end of the program!
+
   // glfw: initialize and configure
   // ------------------------------
   glfwInit();
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
 
 #ifdef __APPLE__
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
@@ -166,20 +236,10 @@ int main() {
                   GL_NEAREST_MIPMAP_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-  // Create the image (RGB Array) to be displayed
-  const int width = 8, height = 8; // keep it in powers of 2!
-  unsigned char image[width * height * 3];
-  for (int i = 0; i < height; i++) {
-    for (int j = 0; j < width; j++) {
-      int idx = (i * width + j) * 3;
-      image[idx] =
-          (unsigned char)(255 * i * j / height / width); //((i+j) % 2) * 255;
-      image[idx + 1] = 0;
-      image[idx + 2] = 0;
-    }
-  }
+  int width = 0, height = 0;
+  unsigned char *data = nullptr;
+  render(width, height, data);
 
-  unsigned char *data = &image[0];
   if (data) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
                  GL_UNSIGNED_BYTE, data);

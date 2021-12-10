@@ -5,3 +5,4 @@ cmake-build-release
 .DS_Store
 bin_*
 downloaded_resources
+*.spv
