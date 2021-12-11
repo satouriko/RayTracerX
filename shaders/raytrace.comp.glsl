@@ -37,18 +37,28 @@ float stepAndOutputRNGFloat(inout uint rngState)
 }
 
 // Returns the color of the sky in a given direction (in linear color space)
-vec3 skyColor(vec3 direction)
+vec3 diffuseSkyColor(vec3 direction)
 {
-  return vec3(0.235294, 0.67451, 0.843137);
+  // sky doesn't have a color in diffuse reflection
+  // demo light
+  vec3 light = vec3(5.459804, 10.568624, -4.02205);
+  // diffuse color might return negative values
+  return dot(normalize(direction), normalize(light)) * 0.478 * vec3(1.0, 1.0, 1.0);
 }
 
-vec3 diffuseColor(vec3 worldNormal)
+vec3 screenColor(vec3 c1, vec3 c2) {
+  return vec3(1.0, 1.0, 1.0) - (vec3(1.0, 1.0, 1.0) - c1) * (vec3(1.0, 1.0, 1.0) - c2);
+}
+
+vec3 specularSkyColor(vec3 direction)
 {
+  vec3 color = vec3(0.235294, 0.67451, 0.843137);
+  // demo light
   vec3 light = vec3(5.459804, 10.568624, -4.02205);
-  if (dot(normalize(worldNormal), normalize(light)) > 0.2) {
-    return 0.4 * dot(normalize(worldNormal), normalize(light)) * vec3(1.0, 1.0, 1.0);
+  if (dot(normalize(direction), normalize(light)) > 0) {
+    return screenColor(color, dot(normalize(direction), normalize(light)) * vec3(1.0, 1.0, 1.0));
   }
-  return vec3(0.0, 0.0, 0.0);
+  return color;
 }
 
 struct HitInfo
@@ -147,7 +157,7 @@ void main()
 
     vec3 accumulatedRayColor = vec3(1.0);  // The amount of light that made it to the end of the current ray.
 
-    vec3 worldNormal = vec3(0.0);
+    bool isDiffuse = false;
     // Limit the kernel to trace at most 32 segments.
     for(int tracedSegments = 0; tracedSegments < 32; tracedSegments++)
     {
@@ -181,27 +191,28 @@ void main()
 
         // Flip the normal so it points against the ray direction:
         hitInfo.worldNormal = faceforward(hitInfo.worldNormal, rayDirection, hitInfo.worldNormal);
-        worldNormal = hitInfo.worldNormal;
 
         // Start a new ray at the hit position, but offset it slightly along the normal:
         rayOrigin = hitInfo.worldPosition + 0.0001 * hitInfo.worldNormal;
-        // Reflect the direction of the ray using the triangle normal:
-        rayDirection = reflect(rayDirection, hitInfo.worldNormal);
-//        const float theta = 6.2831853 * stepAndOutputRNGFloat(rngState);   // Random in [0, 2pi]
-//        const float u     = 2.0 * stepAndOutputRNGFloat(rngState) - 1.0;  // Random in [-1, 1]
-//        const float r     = sqrt(1.0 - u * u);
-//        rayDirection      = hitInfo.worldNormal + vec3(r * cos(theta), r * sin(theta), u);
-        // Then normalize the ray direction:
-        rayDirection = normalize(rayDirection);
+        if (!isDiffuse) {
+            // Reflect the direction of the ray using the triangle normal:
+            rayDirection = reflect(rayDirection, hitInfo.worldNormal);
+        } else {
+            const float theta = 6.2831853 * stepAndOutputRNGFloat(rngState);   // Random in [0, 2pi]
+            const float u     = 2.0 * stepAndOutputRNGFloat(rngState) - 1.0;  // Random in [-1, 1]
+            const float r     = sqrt(1.0 - u * u);
+            rayDirection      = hitInfo.worldNormal + vec3(r * cos(theta), r * sin(theta), u);
+            // Then normalize the ray direction:
+            rayDirection = normalize(rayDirection);
+        }
       }
       else
       {
         // Ray hit the sky
-        if (worldNormal.x == 0.0 && worldNormal.y == 0.0 && worldNormal.z == 0.0) {
-          accumulatedRayColor *= skyColor(rayDirection); 
-        } else {
-          accumulatedRayColor *= diffuseColor(worldNormal);
-        }
+        if (isDiffuse)
+            accumulatedRayColor *= diffuseSkyColor(rayDirection); 
+        else
+            accumulatedRayColor *= specularSkyColor(rayDirection); 
         
         // Sum this with the pixel's other samples.
         // (Note that we treat a ray that didn't find a light source as if it had
