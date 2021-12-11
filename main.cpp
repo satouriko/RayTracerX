@@ -69,6 +69,7 @@ void loadPolyMeshFromFile(const char *file,
                           std::vector<float> &objNormals,
                           std::vector<float> &objStCords) {
   for (auto &directory : directories) {
+    auto offset = objVertices.size() / 3;
     std::ifstream ifs;
     try {
       ifs.open(directory + "/" + file);
@@ -133,9 +134,9 @@ void loadPolyMeshFromFile(const char *file,
       for (uint32_t i = 0, k = 0; i < numFaces; ++i) { // for each  face
         for (uint32_t j = 0; j < faceIndex[i] - 2;
              ++j) { // for each triangle in the face
-          objIndices.push_back(vertsIndex[k]);
-          objIndices.push_back(vertsIndex[k + j + 1]);
-          objIndices.push_back(vertsIndex[k + j + 2]);
+          objIndices.push_back(offset + vertsIndex[k]);
+          objIndices.push_back(offset + vertsIndex[k + j + 1]);
+          objIndices.push_back(offset + vertsIndex[k + j + 2]);
         }
         k += faceIndex[i];
       }
@@ -198,6 +199,10 @@ void render(int &width, int &height, unsigned char *&data) {
   auto exePath = std::filesystem::current_path().generic_string();
 
   loadPolyMeshFromFile("geometry/backdrop.geo", {exePath, exePath + "/.."},
+                       objIndices, objVertices, objNormals, objStCords);
+  loadPolyMeshFromFile("geometry/cylinder.geo", {exePath, exePath + "/.."},
+                       objIndices, objVertices, objNormals, objStCords);
+  loadPolyMeshFromFile("geometry/pen.geo", {exePath, exePath + "/.."},
                        objIndices, objVertices, objNormals, objStCords);
 
   // Shader loading and pipeline creation

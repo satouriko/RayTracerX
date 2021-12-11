@@ -157,7 +157,7 @@ void main()
 
     vec3 accumulatedRayColor = vec3(1.0);  // The amount of light that made it to the end of the current ray.
 
-    bool isDiffuse = false;
+    bool isDiffuse = true;
     // Limit the kernel to trace at most 32 segments.
     for(int tracedSegments = 0; tracedSegments < 32; tracedSegments++)
     {
