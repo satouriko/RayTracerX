@@ -20,8 +20,8 @@
 static const uint32_t workgroup_width = 16;
 static const uint32_t workgroup_height = 8;
 
-static const uint64_t render_width = 800;
-static const uint64_t render_height = 600;
+static const uint64_t render_width = 1024;
+static const uint64_t render_height = 747;
 
 const unsigned int SCR_WIDTH = render_width;
 const unsigned int SCR_HEIGHT = render_height;
@@ -69,7 +69,7 @@ void loadPolyMeshFromFile(const char *file,
                           std::vector<float> &objNormals,
                           std::vector<float> &objStCords,
                           std::vector<float> &objIor,
-                          float ior) {
+                          float ior, float smoothNormal) {
   for (auto &directory : directories) {
     auto offset = objVertices.size() / 3;
     std::ifstream ifs;
@@ -150,6 +150,7 @@ void loadPolyMeshFromFile(const char *file,
           objStCords.push_back(st[k + j + 2].x);
           objStCords.push_back(st[k + j + 2].y);
           objIor.push_back(ior);
+          objIor.push_back(smoothNormal);
         }
         k += faceIndex[i];
       }
@@ -213,11 +214,11 @@ void render(int &width, int &height, unsigned char *&data) {
   auto exePath = std::filesystem::current_path().generic_string();
 
   loadPolyMeshFromFile("geometry/backdrop.geo", {exePath, exePath + "/.."},
-                       objIndices, objVertices, objNormals, objStCords, objIor, 0.0);
+                       objIndices, objVertices, objNormals, objStCords, objIor, 0.0, 1.0);
   loadPolyMeshFromFile("geometry/cylinder.geo", {exePath, exePath + "/.."},
-                       objIndices, objVertices, objNormals, objStCords, objIor, 1.5);
+                       objIndices, objVertices, objNormals, objStCords, objIor, 1.5, 1.0);
   loadPolyMeshFromFile("geometry/pen.geo", {exePath, exePath + "/.."},
-                       objIndices, objVertices, objNormals, objStCords, objIor, 0.0);
+                       objIndices, objVertices, objNormals, objStCords, objIor, 0.0, 0.0);
 
   // Shader loading and pipeline creation
   VkShaderModule rayTraceModule = nvvk::createShaderModule(

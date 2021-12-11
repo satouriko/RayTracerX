@@ -44,31 +44,6 @@ float stepAndOutputRNGFloat(inout uint rngState)
   return float(word) / 4294967295.0f;
 }
 
-// Returns the color of the sky in a given direction (in linear color space)
-vec3 diffuseSkyColor(vec3 direction)
-{
-  // sky doesn't have a color in diffuse reflection
-  // demo light
-  vec3 light = vec3(5.459804, 10.568624, -4.02205);
-  // diffuse color might return negative values
-  return dot(normalize(direction), normalize(light)) * 0.478 * vec3(1.0, 1.0, 1.0);
-}
-
-vec3 screenColor(vec3 c1, vec3 c2) {
-  return vec3(1.0, 1.0, 1.0) - (vec3(1.0, 1.0, 1.0) - c1) * (vec3(1.0, 1.0, 1.0) - c2);
-}
-
-vec3 specularSkyColor(vec3 direction)
-{
-  vec3 color = vec3(0.235294, 0.67451, 0.843137);
-  // demo light
-  vec3 light = vec3(5.459804, 10.568624, -4.02205);
-  if (dot(normalize(direction), normalize(light)) > 0) {
-    return screenColor(color, dot(normalize(direction), normalize(light)) * vec3(1.0, 1.0, 1.0));
-  }
-  return color;
-}
-
 struct HitInfo
 {
   vec3 color;
@@ -76,6 +51,12 @@ struct HitInfo
   vec3 worldNormal;
   float ior;
 };
+
+float getObjectIor(rayQueryEXT rayQuery)
+{
+  const int primitiveID = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, false);
+  return iors[2 * primitiveID];
+}
 
 HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
 {
@@ -111,16 +92,20 @@ HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
   //   /|    \  .
   //  L v0---v1 .
   // n
-  const vec3 n0 = normalize(normals[3 * primitiveID]);
-  const vec3 n1 = normalize(normals[3 * primitiveID + 1]);
-  const vec3 n2 = normalize(normals[3 * primitiveID + 2]);
-  const vec3 objectNormal = n0 * barycentrics.x + n1 * barycentrics.y + n2 * barycentrics.z;
-  // For the main tutorial, object space is the same as world space:
-  result.worldNormal = normalize(objectNormal);
+  if (iors[2 * primitiveID + 1] == 1.0) {
+      const vec3 n0 = normalize(normals[3 * primitiveID]);
+      const vec3 n1 = normalize(normals[3 * primitiveID + 1]);
+      const vec3 n2 = normalize(normals[3 * primitiveID + 2]);
+      const vec3 objectNormal = n0 * barycentrics.x + n1 * barycentrics.y + n2 * barycentrics.z;
+      // For the main tutorial, object space is the same as world space:
+      result.worldNormal = normalize(objectNormal);
+  } else {
+      result.worldNormal = normalize(cross(v1 - v0, v2 - v0));
+  }
 
   result.color = vec3(0.7f);
 
-  result.ior = iors[primitiveID];
+  result.ior = iors[2 * primitiveID];
 
   return result;
 }
@@ -188,8 +173,10 @@ bool trace(vec3 rayOrigin, vec3 rayDirection) {
       if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
         gl_RayQueryCandidateIntersectionTriangleEXT)
         {
-            HitInfo hitInfo = getObjectHitInfo(rayQuery);
-            if (hitInfo.ior == 0.0) rayQueryConfirmIntersectionEXT(rayQuery);
+            float ior = getObjectIor(rayQuery);
+            if (ior == 0.0) {
+              rayQueryConfirmIntersectionEXT(rayQuery);
+            }
         }
     }
   return rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT;
@@ -298,7 +285,7 @@ void main()
 {
   // The resolution of the buffer, which in this case is a hardcoded vector
   // of 2 unsigned integers:
-  const uvec2 resolution = uvec2(800, 600);
+  const uvec2 resolution = uvec2(1024, 747);
 
   // Get the coordinates of the pixel for this invocation:
   //
