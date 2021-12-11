@@ -424,9 +424,10 @@ void render(int &width, int &height, unsigned char *&data) {
   for (int i = 0; i < height; i++) {
     for (int j = 0; j < width; j++) {
       int idx = (i * width + j) * 3;
-      image[idx] = (unsigned char)(255 * data_f[idx]);
-      image[idx + 1] = (unsigned char)(255 * data_f[idx + 1]);
-      image[idx + 2] = (unsigned char)(255 * data_f[idx + 2]);
+      int idgl = ((height - i - 1) * width + j) * 3;
+      image[idgl] = (unsigned char)(255 * data_f[idx]);
+      image[idgl + 1] = (unsigned char)(255 * data_f[idx + 1]);
+      image[idgl + 2] = (unsigned char)(255 * data_f[idx + 2]);
     }
   }
   data = image;

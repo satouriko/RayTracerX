@@ -42,6 +42,15 @@ vec3 skyColor(vec3 direction)
   return vec3(0.235294, 0.67451, 0.843137);
 }
 
+vec3 diffuseColor(vec3 worldNormal)
+{
+  vec3 light = vec3(5.459804, 10.568624, -4.02205);
+  if (dot(normalize(worldNormal), normalize(light)) > 0.2) {
+    return 0.4 * dot(normalize(worldNormal), normalize(light)) * vec3(1.0, 1.0, 1.0);
+  }
+  return vec3(0.0, 0.0, 0.0);
+}
+
 struct HitInfo
 {
   vec3 color;
@@ -138,6 +147,7 @@ void main()
 
     vec3 accumulatedRayColor = vec3(1.0);  // The amount of light that made it to the end of the current ray.
 
+    vec3 worldNormal = vec3(0.0);
     // Limit the kernel to trace at most 32 segments.
     for(int tracedSegments = 0; tracedSegments < 32; tracedSegments++)
     {
@@ -171,22 +181,27 @@ void main()
 
         // Flip the normal so it points against the ray direction:
         hitInfo.worldNormal = faceforward(hitInfo.worldNormal, rayDirection, hitInfo.worldNormal);
+        worldNormal = hitInfo.worldNormal;
 
         // Start a new ray at the hit position, but offset it slightly along the normal:
         rayOrigin = hitInfo.worldPosition + 0.0001 * hitInfo.worldNormal;
         // Reflect the direction of the ray using the triangle normal:
-        //rayDirection = reflect(rayDirection, hitInfo.worldNormal);
-        const float theta = 6.2831853 * stepAndOutputRNGFloat(rngState);   // Random in [0, 2pi]
-        const float u     = 2.0 * stepAndOutputRNGFloat(rngState) - 1.0;  // Random in [-1, 1]
-        const float r     = sqrt(1.0 - u * u);
-        rayDirection      = hitInfo.worldNormal + vec3(r * cos(theta), r * sin(theta), u);
+        rayDirection = reflect(rayDirection, hitInfo.worldNormal);
+//        const float theta = 6.2831853 * stepAndOutputRNGFloat(rngState);   // Random in [0, 2pi]
+//        const float u     = 2.0 * stepAndOutputRNGFloat(rngState) - 1.0;  // Random in [-1, 1]
+//        const float r     = sqrt(1.0 - u * u);
+//        rayDirection      = hitInfo.worldNormal + vec3(r * cos(theta), r * sin(theta), u);
         // Then normalize the ray direction:
         rayDirection = normalize(rayDirection);
       }
       else
       {
         // Ray hit the sky
-        accumulatedRayColor *= skyColor(rayDirection);
+        if (worldNormal.x == 0.0 && worldNormal.y == 0.0 && worldNormal.z == 0.0) {
+          accumulatedRayColor *= skyColor(rayDirection); 
+        } else {
+          accumulatedRayColor *= diffuseColor(worldNormal);
+        }
         
         // Sum this with the pixel's other samples.
         // (Note that we treat a ray that didn't find a light source as if it had
@@ -201,4 +216,8 @@ void main()
   // Get the index of this invocation in the buffer:
   uint linearIndex       = resolution.x * pixel.y + pixel.x;
   imageData[linearIndex] = summedPixelColor / float(NUM_SAMPLES);  // Take the average
+//  const vec3 pixelColor = vec3(float(pixel.x) / resolution.x,  // Red
+//                               float(pixel.y) / resolution.y,  // Green
+//                               0.0);                           // Blue
+//  imageData[linearIndex] = pixelColor;
 }
