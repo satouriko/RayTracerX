@@ -19,6 +19,10 @@ layout(binding = 3, set = 0, scalar) buffer Indices
 {
   uint indices[];
 };
+layout(binding = 4, set = 0, scalar) buffer Iors
+{
+  float iors[];
+};
 
 // Random number generation using pcg32i_random_t, using inc = 1. Our random state is a uint.
 uint stepRNG(uint rngState)
@@ -66,6 +70,7 @@ struct HitInfo
   vec3 color;
   vec3 worldPosition;
   vec3 worldNormal;
+  float ior;
 };
 
 HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
@@ -107,6 +112,8 @@ HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
   result.worldNormal = objectNormal;
 
   result.color = vec3(0.7f);
+
+  result.ior = iors[primitiveID];
 
   return result;
 }
