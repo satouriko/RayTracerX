@@ -111,16 +111,11 @@ void loadPolyMeshFromFile(const char *file,
       std::unique_ptr<glm::vec3[]> normals(new glm::vec3[vertsIndexArraySize]);
       for (uint32_t i = 0; i < vertsIndexArraySize; ++i) {
         ss >> normals[i].x >> normals[i].y >> normals[i].z;
-        objNormals.push_back(normals[i].x);
-        objNormals.push_back(normals[i].y);
-        objNormals.push_back(normals[i].z);
       }
       // reading st coordinates
       std::unique_ptr<glm::vec3[]> st(new glm::vec3[vertsIndexArraySize]);
       for (uint32_t i = 0; i < vertsIndexArraySize; ++i) {
         ss >> st[i].x >> st[i].y;
-        objStCords.push_back(st[i].x);
-        objStCords.push_back(st[i].y);
       }
       uint32_t k = 0, maxVertIndex = 0, numTris = 0;
       // find out how many triangles we need to create for this mesh
@@ -139,6 +134,21 @@ void loadPolyMeshFromFile(const char *file,
           objIndices.push_back(offset + vertsIndex[k]);
           objIndices.push_back(offset + vertsIndex[k + j + 1]);
           objIndices.push_back(offset + vertsIndex[k + j + 2]);
+          objNormals.push_back(normals[k].x);
+          objNormals.push_back(normals[k].y);
+          objNormals.push_back(normals[k].z);
+          objNormals.push_back(normals[k + j + 1].x);
+          objNormals.push_back(normals[k + j + 1].y);
+          objNormals.push_back(normals[k + j + 1].z);
+          objNormals.push_back(normals[k + j + 2].x);
+          objNormals.push_back(normals[k + j + 2].y);
+          objNormals.push_back(normals[k + j + 2].z);
+          objStCords.push_back(st[k].x);
+          objStCords.push_back(st[k].y);
+          objStCords.push_back(st[k + j + 1].x);
+          objStCords.push_back(st[k + j + 1].y);
+          objStCords.push_back(st[k + j + 2].x);
+          objStCords.push_back(st[k + j + 2].y);
           objIor.push_back(ior);
         }
         k += faceIndex[i];
@@ -229,7 +239,7 @@ void render(int &width, int &height, unsigned char *&data) {
   NVVK_CHECK(vkCreateCommandPool(context, &cmdPoolInfo, nullptr, &cmdPool));
 
   // Upload the vertex and index buffers to the GPU.
-  nvvk::Buffer vertexBuffer, indexBuffer, iorBuffer;
+  nvvk::Buffer vertexBuffer, indexBuffer, iorBuffer, normalBuffer;
   {
     // Start a command buffer for uploading the buffers
     VkCommandBuffer uploadCmdBuffer =
@@ -243,6 +253,7 @@ void render(int &width, int &height, unsigned char *&data) {
     vertexBuffer = allocator.createBuffer(uploadCmdBuffer, objVertices, usage);
     indexBuffer = allocator.createBuffer(uploadCmdBuffer, objIndices, usage);
     iorBuffer = allocator.createBuffer(uploadCmdBuffer, objIor, usage);
+    normalBuffer = allocator.createBuffer(uploadCmdBuffer, objNormals, usage);
     EndSubmitWaitAndFreeCommandBuffer(context, context.m_queueGCT, cmdPool,
                                       uploadCmdBuffer);
     allocator.finalizeAndReleaseStaging();
@@ -331,6 +342,8 @@ void render(int &width, int &height, unsigned char *&data) {
                                     VK_SHADER_STAGE_COMPUTE_BIT);
   descriptorSetContainer.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                                     VK_SHADER_STAGE_COMPUTE_BIT);
+  descriptorSetContainer.addBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                                    VK_SHADER_STAGE_COMPUTE_BIT);
   // Create a layout from the list of bindings
   descriptorSetContainer.initLayout();
   // Create a descriptor pool from the list of bindings with space for 1 set,
@@ -339,7 +352,7 @@ void render(int &width, int &height, unsigned char *&data) {
   // Create a simple pipeline layout from the descriptor set layout:
   descriptorSetContainer.initPipeLayout();
   // Write values into the descriptor set.
-  std::array<VkWriteDescriptorSet, 5> writeDescriptorSets;
+  std::array<VkWriteDescriptorSet, 6> writeDescriptorSets;
   // 0
   VkDescriptorBufferInfo descriptorBufferInfo{};
   descriptorBufferInfo.buffer = buffer.buffer; // The VkBuffer object
@@ -375,6 +388,12 @@ void render(int &width, int &height, unsigned char *&data) {
   iorDescriptorBufferInfo.range = VK_WHOLE_SIZE;
   writeDescriptorSets[4] =
       descriptorSetContainer.makeWrite(0, 4, &iorDescriptorBufferInfo);
+  // 5
+  VkDescriptorBufferInfo normalDescriptorBufferInfo{};
+  normalDescriptorBufferInfo.buffer = normalBuffer.buffer;
+  normalDescriptorBufferInfo.range = VK_WHOLE_SIZE;
+  writeDescriptorSets[5] =
+      descriptorSetContainer.makeWrite(0, 5, &normalDescriptorBufferInfo);
   vkUpdateDescriptorSets(
       context, // The context
       static_cast<uint32_t>(

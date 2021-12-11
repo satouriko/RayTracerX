@@ -23,6 +23,10 @@ layout(binding = 4, set = 0, scalar) buffer Iors
 {
   float iors[];
 };
+layout(binding = 5, set = 0, scalar) buffer Normals
+{
+  vec3 normals[];
+};
 
 // Random number generation using pcg32i_random_t, using inc = 1. Our random state is a uint.
 uint stepRNG(uint rngState)
@@ -107,15 +111,187 @@ HitInfo getObjectHitInfo(rayQueryEXT rayQuery)
   //   /|    \  .
   //  L v0---v1 .
   // n
-  const vec3 objectNormal = normalize(cross(v1 - v0, v2 - v0));
+  const vec3 n0 = normalize(normals[3 * primitiveID]);
+  const vec3 n1 = normalize(normals[3 * primitiveID + 1]);
+  const vec3 n2 = normalize(normals[3 * primitiveID + 2]);
+  const vec3 objectNormal = n0 * barycentrics.x + n1 * barycentrics.y + n2 * barycentrics.z;
   // For the main tutorial, object space is the same as world space:
-  result.worldNormal = objectNormal;
+  result.worldNormal = normalize(objectNormal);
 
   result.color = vec3(0.7f);
 
   result.ior = iors[primitiveID];
 
   return result;
+}
+
+vec3 lightDir = -normalize(vec3(5.459804, 10.568624, -4.02205));
+
+float fresnel(vec3 I, vec3 N, float ior)
+{
+    float kr = 0.0;
+    float cosi = clamp(dot(I, N), -1, 1);
+    float etai = 1, etat = ior;
+    if (cosi > 0) { 
+      etai = etat;
+      etat = 1;
+    }
+    // Compute sini using Snell's law
+    float sint = etai / etat * sqrt(max(0.f, 1 - cosi * cosi));
+    // Total internal reflection
+    if (sint >= 1) {
+        kr = 1;
+    }
+    else {
+        float cost = sqrt(max(0.f, 1 - sint * sint));
+        cosi = abs(cosi);
+        float Rs = ((etat * cosi) - (etai * cost)) / ((etat * cosi) + (etai * cost));
+        float Rp = ((etai * cosi) - (etat * cost)) / ((etai * cosi) + (etat * cost));
+        kr = (Rs * Rs + Rp * Rp) / 2;
+    }
+    // As a consequence of the conservation of energy, transmittance is given by:
+    // kt = 1 - kr;
+    return kr;
+}
+
+vec3 refract1(vec3 I, vec3 N, float ior)
+{
+    float cosi = clamp(dot(I,N), -1, 1);
+    float etai = 1, etat = ior;
+    vec3 n = N;
+    if (cosi < 0) { cosi = -cosi; }
+    else {
+      etai = ior;
+      etat = 1;
+      n = -N;
+    }
+    float eta = etai / etat;
+    float k = 1 - eta * eta * (1 - cosi * cosi);
+    return k < 0 ? vec3(0.0) : eta * I + (eta * cosi - sqrt(k)) * n;
+}
+
+bool trace(vec3 rayOrigin, vec3 rayDirection) {
+  rayQueryEXT rayQuery;
+  rayQueryInitializeEXT(rayQuery,              // Ray query
+                            tlas,                  // Top-level acceleration structure
+                            gl_RayFlagsNoOpaqueEXT,  // Ray flags, here saying "treat all geometry as opaque"
+                            0xFF,                  // 8-bit instance mask, here saying "trace against all instances"
+                            rayOrigin,             // Ray origin
+                            0.0,                   // Minimum t-value
+                            rayDirection,          // Ray direction
+                            10000.0);              // Maximum t-value
+
+    // Start traversal, and loop over all ray-scene intersections. When this finishes,
+    // rayQuery stores a "committed" intersection, the closest intersection (if any).
+    while(rayQueryProceedEXT(rayQuery))
+    {
+      if (rayQueryGetIntersectionTypeEXT(rayQuery, false) ==
+        gl_RayQueryCandidateIntersectionTriangleEXT)
+        {
+            HitInfo hitInfo = getObjectHitInfo(rayQuery);
+            if (hitInfo.ior == 0.0) rayQueryConfirmIntersectionEXT(rayQuery);
+        }
+    }
+  return rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT;
+}
+
+struct CastRayObj {
+  vec3 rayOrigin;
+  vec3 rayDirection;
+  float coefficient;
+  int depth;
+};
+
+vec3 castRay(vec3 rayOrigin0, vec3 rayDirection0) {
+  const int maxDepth = 32;
+  vec3 backgroundColor = vec3(0.235294, 0.67451, 0.843137);
+  vec3 hitColor = vec3(0.0);
+  CastRayObj stack[maxDepth];
+  CastRayObj initial;
+  initial.rayOrigin = rayOrigin0;
+  initial.rayDirection = rayDirection0;
+  initial.coefficient = 1;
+  initial.depth = 0;
+  int ptr = 0;
+  stack[ptr] = initial;
+  while (ptr >= 0) {
+      CastRayObj cobj = stack[ptr];
+      ptr--;
+      rayQueryEXT rayQuery;
+      rayQueryInitializeEXT(rayQuery,              // Ray query
+                                tlas,                  // Top-level acceleration structure
+                                gl_RayFlagsOpaqueEXT,  // Ray flags, here saying "treat all geometry as opaque"
+                                0xFF,                  // 8-bit instance mask, here saying "trace against all instances"
+                                cobj.rayOrigin,             // Ray origin
+                                0.0,                   // Minimum t-value
+                                cobj.rayDirection,          // Ray direction
+                                10000.0);              // Maximum t-value
+
+        // Start traversal, and loop over all ray-scene intersections. When this finishes,
+        // rayQuery stores a "committed" intersection, the closest intersection (if any).
+        while(rayQueryProceedEXT(rayQuery))
+        {
+        }
+
+        // Get the type of committed (true) intersection - nothing, a triangle, or
+        // a generated object
+        if(rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
+        {
+          // Ray hit a triangle
+          HitInfo hitInfo = getObjectHitInfo(rayQuery);
+          // diffuse
+          if (hitInfo.ior == 0.0) {
+            // trace by the direction of light to see if shadowed
+            hitInfo.worldNormal = faceforward(hitInfo.worldNormal, cobj.rayDirection, hitInfo.worldNormal);
+
+            // Start a new ray at the hit position, but offset it slightly along the normal:
+            vec3 hitPoint = hitInfo.worldPosition + 0.0001 * hitInfo.worldNormal;
+            bool vis = !trace(hitPoint, -lightDir);
+            if (vis)
+                hitColor += cobj.coefficient * vec3(0.4) * max(0.0, dot(hitInfo.worldNormal, -lightDir));
+          } else {
+            vec3 refractionColor = vec3(0.0);
+            vec3 reflectionColor = vec3(0.0);
+            float kr = fresnel(cobj.rayDirection, hitInfo.worldNormal, hitInfo.ior);
+            hitInfo.worldNormal = faceforward(hitInfo.worldNormal,cobj.rayDirection, hitInfo.worldNormal);
+            // compute refraction if it is not a case of total internal reflection
+            if (kr < 1) {
+               vec3 refractionDirection = normalize(refract1(cobj.rayDirection, hitInfo.worldNormal, hitInfo.ior));
+               vec3 refractionRayOrig = hitInfo.worldPosition - 0.0001 * hitInfo.worldNormal;
+               ptr++;
+               CastRayObj nObj;
+               nObj.rayOrigin = refractionRayOrig;
+               nObj.rayDirection = refractionDirection;
+               nObj.coefficient = cobj.coefficient * (1 - kr);
+               nObj.depth = cobj.depth + 1;
+               if (ptr >= maxDepth || nObj.depth >= maxDepth) {
+                 hitColor += nObj.coefficient * backgroundColor;
+                 ptr--;
+               } else {
+                 stack[ptr] = nObj;
+               }
+            }
+            vec3 reflectionDirection = normalize(reflect(cobj.rayDirection, hitInfo.worldNormal));
+            vec3 reflectionRayOrig = hitInfo.worldPosition + 0.0001 * hitInfo.worldNormal;
+            ptr++;
+            CastRayObj nObj;
+            nObj.rayOrigin = reflectionRayOrig;
+            nObj.rayDirection = reflectionDirection;
+            nObj.coefficient = cobj.coefficient * kr;
+            nObj.depth = cobj.depth + 1;
+            if (ptr >= maxDepth || nObj.depth >= maxDepth) {
+              hitColor += nObj.coefficient * backgroundColor;
+              ptr--;
+            } else {
+              stack[ptr] = nObj;
+            }
+          }
+        }
+        else {
+          hitColor += cobj.coefficient * backgroundColor;
+        }
+    }
+  return hitColor;
 }
 
 void main()
@@ -152,83 +328,17 @@ void main()
   vec3 summedPixelColor = vec3(0.0);
 
   // Limit the kernel to trace at most 64 samples.
-  const int NUM_SAMPLES = 64;
+  const int NUM_SAMPLES = 1;
   for(int sampleIdx = 0; sampleIdx < NUM_SAMPLES; sampleIdx++)
   {
-    const vec2 randomPixelCenter = vec2(pixel) + vec2(stepAndOutputRNGFloat(rngState), stepAndOutputRNGFloat(rngState));
+    const vec2 randomPixelCenter = vec2(pixel); // + vec2(stepAndOutputRNGFloat(rngState), stepAndOutputRNGFloat(rngState));
     float x = (2 * (float(randomPixelCenter.x) + 0.5) / float(resolution.x) - 1) * imageAspectRatio * scale;
     float y = (1 - 2 * (float(randomPixelCenter.y) + 0.5) / float(resolution.y)) * scale;
     vec3 rayDirection = vec3(cameraToWorld * vec4(x, y, -1.0, 0.0));
     rayDirection      = normalize(rayDirection);
     vec3 rayOrigin    = vec3(cameraToWorld * vec4(0.0, 0.0, 0.0, 1.0));
 
-    vec3 accumulatedRayColor = vec3(1.0);  // The amount of light that made it to the end of the current ray.
-
-    bool isDiffuse = true;
-    // Limit the kernel to trace at most 32 segments.
-    for(int tracedSegments = 0; tracedSegments < 32; tracedSegments++)
-    {
-      // Trace the ray and see if and where it intersects the scene!
-      // First, initialize a ray query object:
-      rayQueryEXT rayQuery;
-      rayQueryInitializeEXT(rayQuery,              // Ray query
-                            tlas,                  // Top-level acceleration structure
-                            gl_RayFlagsOpaqueEXT,  // Ray flags, here saying "treat all geometry as opaque"
-                            0xFF,                  // 8-bit instance mask, here saying "trace against all instances"
-                            rayOrigin,             // Ray origin
-                            0.0,                   // Minimum t-value
-                            rayDirection,          // Ray direction
-                            10000.0);              // Maximum t-value
-
-      // Start traversal, and loop over all ray-scene intersections. When this finishes,
-      // rayQuery stores a "committed" intersection, the closest intersection (if any).
-      while(rayQueryProceedEXT(rayQuery))
-      {
-      }
-
-      // Get the type of committed (true) intersection - nothing, a triangle, or
-      // a generated object
-      if(rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
-      {
-        // Ray hit a triangle
-        HitInfo hitInfo = getObjectHitInfo(rayQuery);
-
-        // Apply color absorption
-        accumulatedRayColor *= hitInfo.color;
-
-        // Flip the normal so it points against the ray direction:
-        hitInfo.worldNormal = faceforward(hitInfo.worldNormal, rayDirection, hitInfo.worldNormal);
-
-        // Start a new ray at the hit position, but offset it slightly along the normal:
-        rayOrigin = hitInfo.worldPosition + 0.0001 * hitInfo.worldNormal;
-        if (!isDiffuse) {
-            // Reflect the direction of the ray using the triangle normal:
-            rayDirection = reflect(rayDirection, hitInfo.worldNormal);
-        } else {
-            const float theta = 6.2831853 * stepAndOutputRNGFloat(rngState);   // Random in [0, 2pi]
-            const float u     = 2.0 * stepAndOutputRNGFloat(rngState) - 1.0;  // Random in [-1, 1]
-            const float r     = sqrt(1.0 - u * u);
-            rayDirection      = hitInfo.worldNormal + vec3(r * cos(theta), r * sin(theta), u);
-            // Then normalize the ray direction:
-            rayDirection = normalize(rayDirection);
-        }
-      }
-      else
-      {
-        // Ray hit the sky
-        if (isDiffuse)
-            accumulatedRayColor *= diffuseSkyColor(rayDirection); 
-        else
-            accumulatedRayColor *= specularSkyColor(rayDirection); 
-        
-        // Sum this with the pixel's other samples.
-        // (Note that we treat a ray that didn't find a light source as if it had
-        // an accumulated color of (0, 0, 0)).
-        summedPixelColor += accumulatedRayColor;
-    
-        break;
-      }
-    }
+    summedPixelColor += castRay(rayOrigin, rayDirection);
   }
 
   // Get the index of this invocation in the buffer:
