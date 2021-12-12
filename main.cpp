@@ -2,6 +2,8 @@
 #include <GL/glew.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <cstdio>
+#include <chrono>
 #include <array>
 #include <filesystem>
 #include <glm/glm.hpp>
@@ -511,7 +513,7 @@ const char *fragmentShaderSource =
     "}\n\0";
 
 int main() {
-
+#if 1
   // glfw: initialize and configure
   // ------------------------------
   glfwInit();
@@ -637,7 +639,12 @@ int main() {
 
   int width = 0, height = 0;
   unsigned char *data = nullptr;
+  auto timeStart = std::chrono::high_resolution_clock::now();
   render(width, height, data);
+  auto timeEnd = std::chrono::high_resolution_clock::now();
+  auto passedTime =
+      std::chrono::duration<double, std::milli>(timeEnd - timeStart).count();
+  fprintf(stderr, "\rDone: %.2f (sec)\n", passedTime / 1000);
 
   if (data) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
@@ -683,6 +690,30 @@ int main() {
   // glfw: terminate, clearing all previously allocated GLFW resources.
   // ------------------------------------------------------------------
   glfwTerminate();
+#else
+  int width = 0, height = 0;
+  unsigned char *data = nullptr;
+  auto timeStart = std::chrono::high_resolution_clock::now();
+  render(width, height, data);
+  auto timeEnd = std::chrono::high_resolution_clock::now();
+  auto passedTime =
+      std::chrono::duration<double, std::milli>(timeEnd - timeStart).count();
+  fprintf(stderr, "\rDone: %.2f (sec)\n", passedTime / 1000);
+  // save framebuffer to file
+  std::ofstream ofs;
+  ofs.open("out.ppm");
+  ofs << "P3\n" << width << " " << height << "\n255\n";
+  for (int i = 0; i < height; i++) {
+    for (int j = 0; j < width; j++) {
+      int idgl = (i * width + j) * 3;
+      int idx = ((height - i - 1) * width + j) * 3;
+      ofs << (int)data[idx] << " " << (int)data[idx + 1] << " "
+          << (int)data[idx + 2]
+          << "\n";
+    }
+  }
+  ofs.close();
+#endif
   return 0;
 }
 

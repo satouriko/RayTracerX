@@ -316,10 +316,10 @@ void main()
   vec3 summedPixelColor = vec3(0.0);
 
   // Limit the kernel to trace at most 64 samples.
-  const int NUM_SAMPLES = 1;
+  const int NUM_SAMPLES = 64;
   for(int sampleIdx = 0; sampleIdx < NUM_SAMPLES; sampleIdx++)
   {
-    const vec2 randomPixelCenter = vec2(pixel); // + vec2(stepAndOutputRNGFloat(rngState), stepAndOutputRNGFloat(rngState));
+    const vec2 randomPixelCenter = vec2(pixel) + vec2(stepAndOutputRNGFloat(rngState), stepAndOutputRNGFloat(rngState));
     float x = (2 * (float(randomPixelCenter.x) + 0.5) / float(resolution.x) - 1) * imageAspectRatio * scale;
     float y = (1 - 2 * (float(randomPixelCenter.y) + 0.5) / float(resolution.y)) * scale;
     vec3 rayDirection = vec3(cameraToWorld * vec4(x, y, -1.0, 0.0));
