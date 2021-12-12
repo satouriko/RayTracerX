@@ -240,10 +240,10 @@ vec3 castRay(vec3 rayOrigin0, vec3 rayDirection0) {
             vec3 refractionColor = vec3(0.0);
             vec3 reflectionColor = vec3(0.0);
             float kr = fresnel(cobj.rayDirection, hitInfo.worldNormal, hitInfo.ior);
-            hitInfo.worldNormal = faceforward(hitInfo.worldNormal,cobj.rayDirection, hitInfo.worldNormal);
             // compute refraction if it is not a case of total internal reflection
             if (kr < 1) {
                vec3 refractionDirection = normalize(refract1(cobj.rayDirection, hitInfo.worldNormal, hitInfo.ior));
+               hitInfo.worldNormal = faceforward(hitInfo.worldNormal,cobj.rayDirection, hitInfo.worldNormal);
                vec3 refractionRayOrig = hitInfo.worldPosition - 0.0001 * hitInfo.worldNormal;
                ptr++;
                CastRayObj nObj;
@@ -258,6 +258,7 @@ vec3 castRay(vec3 rayOrigin0, vec3 rayDirection0) {
                  stack[ptr] = nObj;
                }
             }
+            hitInfo.worldNormal = faceforward(hitInfo.worldNormal,cobj.rayDirection, hitInfo.worldNormal);
             vec3 reflectionDirection = normalize(reflect(cobj.rayDirection, hitInfo.worldNormal));
             vec3 reflectionRayOrig = hitInfo.worldPosition + 0.0001 * hitInfo.worldNormal;
             ptr++;
